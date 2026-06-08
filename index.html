@@ -399,7 +399,7 @@ du erfasst sie live unter Ziehung."></textarea>
         <span class="live-sw" id="dev-toggle-sw"><span class="live-sw-dot"></span></span>
         <span style="font-size:.72rem;font-weight:700;color:var(--g4)">Entwickleroptionen</span>
       </label>
-      <span id="app-version" style="font-size:.65rem;color:var(--g2);user-select:none">V31</span>
+      <span id="app-version" style="font-size:.65rem;color:var(--g2);user-select:none">V32</span>
     </div>
     <div id="dev-options" style="display:none;margin-top:10px;flex-direction:column;gap:8px">
       <button id="btn-dev-info" class="btn bsm" style="font-size:.78rem;background:var(--g1);color:var(--g6)">ℹ️ Info</button>
@@ -3713,12 +3713,13 @@ bind('btn-open-manual',  'click', openManual);
           ctx.rotate(angle * Math.PI / 180);
           ctx.drawImage(imgEl, leftX, topY, cw, ch, -ow/2, -oh/2, ow, oh);
 
-          // Graustufen
+          // Graustufen + optional Threshold für dunkle Hintergründe
           var imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           var d = imgData.data;
+          var thresh = (scale < 1.0) ? 0 : 150; // dunkle Hintergründe: Threshold
           for(var i=0; i<d.length; i+=4){
-            var g = Math.round(0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]);
-            d[i]=d[i+1]=d[i+2]=g;
+            var gv = Math.round(0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]);
+            d[i]=d[i+1]=d[i+2]= (thresh>0 ? (gv>thresh?255:0) : gv);
           }
           ctx.putImageData(imgData, 0, 0);
 
