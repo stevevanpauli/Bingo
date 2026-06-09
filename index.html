@@ -399,7 +399,7 @@ du erfasst sie live unter Ziehung."></textarea>
         <span class="live-sw" id="dev-toggle-sw"><span class="live-sw-dot"></span></span>
         <span style="font-size:.72rem;font-weight:700;color:var(--g4)">Entwickleroptionen</span>
       </label>
-      <span id="app-version" style="font-size:.65rem;color:var(--g2);user-select:none">V46</span>
+      <span id="app-version" style="font-size:.65rem;color:var(--g2);user-select:none">V47</span>
     </div>
     <div id="dev-options" style="display:none;margin-top:10px;flex-direction:column;gap:8px">
       <button id="btn-dev-info" class="btn bsm" style="font-size:.78rem;background:var(--g1);color:var(--g6)">ℹ️ Info</button>
@@ -4010,7 +4010,7 @@ updateLivePill();
     info += 'Letzter Poll-Cursor (id): ' + (typeof liveAutoLastId!=='undefined'?liveAutoLastId:'–') + '\n\n';
     info += 'API Live-Ziehung:\nhttps://www.bingo-umweltlotterie.de/api/liveziehung?timestamp=0\n\n';
     info += 'API Gewinnzahlen:\nhttps://www.bingo-umweltlotterie.de/api/gewinnzahlen/last\n\n';
-    info += 'Gewinnprüfung (sonntags, ab 18H): ' + (window._gewinnPollTimer?'aktiv':'inaktiv');
+    info += 'Gewinnprüfung (So ab 18H, Mo-Sa): ' + (window._gewinnPollTimer?'aktiv':'inaktiv');
     alert(info);
   });
   // Debug-Button: zeigt API-Poll-Toast
@@ -4052,10 +4052,10 @@ if(window._lastGewinnResult) setTimeout(renderCheck, 100);
 function isSundayAfter18(){
   var d = new Date();
   var mez = new Date(d.toLocaleString('en-US',{timeZone:'Europe/Berlin'}));
-  var day = mez.getDay(); // 0=Sonntag, 1=Montag
+  var day = mez.getDay(); // 0=So,1=Mo,...,6=Sa
   var after18 = mez.getHours()>18 || (mez.getHours()===18 && mez.getMinutes()>=0);
-  // Sonntag ab 18 Uhr ODER Montag ganztägig (Ergebnis noch gültig)
-  return (day===0 && after18) || day===1;
+  // So ab 18H, Mo-Sa ganztägig (Ergebnis der letzten Ziehung noch gültig)
+  return (day===0 && after18) || (day>=1 && day<=6);
 }
 
 function startGewinnPoll(){
