@@ -397,7 +397,7 @@ du erfasst sie live unter Ziehung."></textarea>
         <span class="live-sw" id="dev-toggle-sw"><span class="live-sw-dot"></span></span>
         <span style="font-size:.72rem;font-weight:700;color:var(--g4)">Entwickleroptionen</span>
       </label>
-      <span id="app-version" style="font-size:.65rem;color:var(--g2);user-select:none">V92</span>
+      <span id="app-version" style="font-size:.65rem;color:var(--g2);user-select:none">V93</span>
     </div>
     <div id="dev-options" style="display:none;margin-top:10px;flex-direction:column;gap:8px">
       <button id="btn-dev-info" class="btn bsm" style="font-size:.78rem;background:var(--g1);color:var(--g6)">ℹ️ Info</button>
@@ -4656,8 +4656,9 @@ setInterval(updateLivePill, 60 * 1000);
 
 // ── LIVE Auto-Polling (https://www.bingo-umweltlotterie.de/api/liveziehung) ──
 var liveAutoOn      = false;
-var liveAutoTimer   = null;
-var liveAutoTimeout = null;
+var liveAutoTimer      = null;
+var liveAutoTimeout    = null;  // für Auto-Stop bei Sendungsende
+var liveAutoStartTimer = null;  // für Auto-Start bei Sendungsbeginn
 var liveAutoSeen    = {};   // bereits verarbeitete Zahlen (num → true)
 var liveAutoLastId  = 0;   // höchste bekannte ID für Cursor-basiertes Polling
 
@@ -4823,7 +4824,7 @@ function fetchBingoSendung(sundayDateStr){
           // Berlin-Offset um Mittag dieses Tages ermitteln (DST-sicher)
           var probeMidday = new Date(utcMidnight.getTime() + 12*3600*1000);
           var berlinH = parseInt(new Intl.DateTimeFormat('en-US',{
-            timeZone:'Europe/Berlin', hour:'numeric', hour12:false
+            timeZone:'Europe/Berlin', hour:'numeric', hourCycle:'h23'
           }).format(probeMidday), 10);
           var utcH = probeMidday.getUTCHours(); // = 12
           var offsetH = berlinH - utcH; // z.B. 14-12=2 (MESZ) oder 13-12=1 (MEZ)
@@ -4846,13 +4847,21 @@ function fetchBingoSendung(sundayDateStr){
 // Nächsten Sonntag (oder heute wenn Sonntag) als YYYY-MM-DD in Berlin-Zeit ermitteln
 function getNextSundayStr(){
   var now = new Date();
-  var mez = new Date(now.toLocaleString('en-US',{timeZone:'Europe/Berlin'}));
-  var dow = mez.getDay(); // 0=So
-  var daysUntilSun = (dow===0) ? 0 : 7-dow;
-  var sun = new Date(mez);
-  sun.setDate(mez.getDate()+daysUntilSun);
-  var y=sun.getFullYear(), m=sun.getMonth()+1, d=sun.getDate();
-  return y+'-'+(m<10?'0':'')+m+'-'+(d<10?'0':'')+d;
+  // Berlin-Datum und Wochentag sicher via Intl ermitteln
+  var fmt = new Intl.DateTimeFormat('de-DE',{
+    timeZone:'Europe/Berlin',
+    year:'numeric', month:'2-digit', day:'2-digit', weekday:'short'
+  });
+  var bp = {};
+  fmt.formatToParts(now).forEach(function(p){ bp[p.type]=p.value; });
+  var wd = bp.weekday||'';
+  var dow = (wd==='So'||wd==='So.')?0:(wd==='Mo'||wd==='Mo.')?1:
+            (wd==='Di'||wd==='Di.')?2:(wd==='Mi'||wd==='Mi.')?3:
+            (wd==='Do'||wd==='Do.')?4:(wd==='Fr'||wd==='Fr.')?5:6;
+  var y=parseInt(bp.year,10), m=parseInt(bp.month,10)-1, d=parseInt(bp.day,10);
+  var sun = new Date(y, m, d + (dow===0?0:7-dow));
+  var sy=sun.getFullYear(), sm=sun.getMonth()+1, sd=sun.getDate();
+  return sy+'-'+(sm<10?'0':'')+sm+'-'+(sd<10?'0':'')+sd;
 }
 
 // Gecachte Sendungsinfo (wird beim Aktivieren des Toggles geholt)
@@ -4939,9 +4948,12 @@ function liveAutoStart(){
 
     window._bingoSendung = sendung;
     var now = new Date();
-    var mez = new Date(now.toLocaleString('en-US',{timeZone:'Europe/Berlin'}));
     var isLive   = now >= sendung.start && now < sendung.end;
-    var afterEnd = now >= sendung.end && mez.getHours() < 24;
+    // afterEnd: Sendung vorbei aber noch vor 23:59 Uhr Berlin
+    var berlinHourNow = parseInt(new Intl.DateTimeFormat('en-US',{
+      timeZone:'Europe/Berlin', hour:'numeric', hourCycle:'h23'
+    }).format(now), 10);
+    var afterEnd = now >= sendung.end && berlinHourNow < 24;
 
     setLiveLabel(isLive ? 'green' : 'red');
 
@@ -4962,28 +4974,33 @@ function liveAutoStart(){
     } else {
       // Vor Sendungsbeginn: auf rot warten, dann automatisch zu grün + Poll starten
       var msUntilStart = sendung.start - now;
-      var msUntilEnd2  = sendung.end   - now;
+      var msUntilEnd2  = sendung.end - now;
+      console.log('[BINGO] Sendungsstart in', Math.round(msUntilStart/1000)+'s, Ende in', Math.round(msUntilEnd2/1000)+'s');
       toast('Sendung noch nicht gestartet (ab '+sendung.startStr+' Uhr) – startet automatisch','ok');
       startCountdown(sendung.start);
-      // Timer bis Sendungsstart
-      liveAutoTimeout = setTimeout(function(){
+
+      // Separater Timer für Auto-Start (unabhängig vom Stop-Timer)
+      liveAutoStartTimer = setTimeout(function(){
         if(!liveAutoOn) return;
+        if(liveAutoTimer){ clearInterval(liveAutoTimer); liveAutoTimer=null; }
         setLiveLabel('green');
         stopCountdown();
         liveAutoPoll();
         liveAutoTimer = setInterval(liveAutoPoll, 5000);
         toast('BINGO Sendung hat begonnen – LIVE aktiv','ok');
-        // Timer bis Sendungsende
+        console.log('[BINGO] Poll gestartet um', new Date().toISOString());
+        // Auto-Stop bei Sendungsende
         var msEnd = sendung.end - new Date();
+        console.log('[BINGO] Auto-Stop in', Math.round(msEnd/1000)+'s');
         if(msEnd > 0){
-          setTimeout(function(){
+          liveAutoTimeout = setTimeout(function(){
             if(liveAutoOn){
               liveAutoStop();
               toast('BINGO Sendung beendet – LIVE gestoppt','ok');
             }
           }, msEnd);
         }
-      }, msUntilStart);
+      }, Math.max(0, msUntilStart));
     }
   }).catch(function(){
     if(!liveAutoOn) return;
@@ -4994,8 +5011,9 @@ function liveAutoStart(){
 }
 function liveAutoStop(){
   liveAutoOn = false;
-  if(liveAutoTimer)  { clearInterval(liveAutoTimer);   liveAutoTimer=null;   }
-  if(liveAutoTimeout){ clearTimeout(liveAutoTimeout);  liveAutoTimeout=null; }
+  if(liveAutoTimer)     { clearInterval(liveAutoTimer);    liveAutoTimer=null;      }
+  if(liveAutoTimeout)   { clearTimeout(liveAutoTimeout);   liveAutoTimeout=null;    }
+  if(liveAutoStartTimer){ clearTimeout(liveAutoStartTimer);liveAutoStartTimer=null; }
   var sw=$('live-toggle-sw'), lb=$('live-toggle-label');
   if(sw) sw.classList.remove('on');
   setLiveLabel('off');
