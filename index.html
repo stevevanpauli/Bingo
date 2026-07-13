@@ -397,7 +397,7 @@ du erfasst sie live unter Ziehung."></textarea>
         <span class="live-sw" id="dev-toggle-sw"><span class="live-sw-dot"></span></span>
         <span style="font-size:.72rem;font-weight:700;color:var(--g4)">Entwickleroptionen</span>
       </label>
-      <span id="app-version" style="font-size:.65rem;color:var(--g2);user-select:none">V96</span>
+      <span id="app-version" style="font-size:.65rem;color:var(--g2);user-select:none">V97</span>
     </div>
     <div id="dev-options" style="display:none;margin-top:10px;flex-direction:column;gap:8px">
       <button id="btn-dev-info" class="btn bsm" style="font-size:.78rem;background:var(--g1);color:var(--g6)">ℹ️ Info</button>
@@ -1780,13 +1780,17 @@ function parsePdfAboText(text, fileName){
       // Spiel 77 / SUPER 6 überspringen
       if(/Spiel\s*77|SUPER\s*6/i.test(lt)) continue;
 
-      // Tabellenzeile
-      var nums = lt.match(/\b\d{2}\b/g)||[];
-      if(nums.length >= 5 && nums.length % 5 === 0){
-        // Aufteilen in Gruppen à 5
-        var row=[];
-        for(var n=0;n<nums.length;n+=5) row.push(nums.slice(n,n+5).map(Number));
-        nsTableRows.push(row.reduce(function(a,b){ return a.concat(b); },[]));
+      // Tabellenzeile: genau die ersten N*5 zweistelligen Zahlen nehmen
+      // (Seitentext wie Telefonnummern etc. werden ignoriert)
+      var allNums = lt.match(/\b(0[1-9]|[1-7][0-9]|15|1[0-9]|[2-9][0-9])\b/g)||[];
+      // Begrenze auf BINGO-gültige Zahlen (01-75) und nimm erste 10 (max 2 Felder/Zeile)
+      var validNums = [];
+      for(var vi=0;vi<allNums.length && validNums.length<10;vi++){
+        var n=parseInt(allNums[vi],10);
+        if(n>=1&&n<=75) validNums.push(n);
+      }
+      if(validNums.length===5||validNums.length===10){
+        nsTableRows.push(validNums);
         if(nsTableRows.length===5) nsFlushTable();
       }
     }
@@ -1805,31 +1809,26 @@ function parsePdfAboText(text, fileName){
     // Wenn erfolgreich → direkt zur Anzeige springen
     if(nsTables.length > 0){
       var allDatesNS=Object.keys(dateMap).filter(function(d){ return dateMap[d].length>0; });
-      var datesNS=allDatesNS.filter(function(d){ return isSunday(d)&&isTodayOrFuture(d); });
-      var hiddenNS=allDatesNS.length-datesNS.length;
       if(!allDatesNS.length){
         toast('Keine Spielfelder erkannt (Niedersachsen)', 'err'); return;
       }
-      if(!datesNS.length){
-        toast('Alle '+allDatesNS.length+' Termine bereits vergangen', 'err'); return;
+      allDatesNS.sort(function(a,b){ var pa=a.split('.'),pb=b.split('.'); return new Date(pa[2],pa[1]-1,pa[0])-new Date(pb[2],pb[1]-1,pb[0]); });
+      var datesNS=allDatesNS.filter(function(d){ return isSunday(d)&&isTodayOrFuture(d); });
+      var totalAllNS=0; allDatesNS.forEach(function(d){totalAllNS+=(dateMap[d]||[]).length;});
+      pdfParsed={dateMap:dateMap,dates:datesNS.length?datesNS:allDatesNS,fileName:'Niedersachsen',allDates:allDatesNS};
+      setPdfStatus('\u2713 '+allDatesNS.length+' Termin'+(allDatesNS.length!==1?'e':'')+' \u00b7 '+totalAllNS+' Spielfeld'+(totalAllNS!==1?'er':''));
+      var pdfDatesEl3=$('pdf-dates'); if(pdfDatesEl3) pdfDatesEl3.style.display='';
+      var grid3=$('pdf-dates-grid');
+      var btnHtml='<p class="slbl" style="margin-bottom:6px">Verf\u00fcgbare Ziehungstermine</p>'+
+        '<div id="pdf-date-btns" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">';
+      for(var di=0;di<datesNS.length;di++){
+        var d2=datesNS[di], cnt=(dateMap[d2]||[]).length, sd=d2.slice(0,5);
+        btnHtml+='<button class="pdf-date-btn" data-date="'+d2+'">'+
+          sd+'<span class="pdf-date-count"> \u00b7 '+cnt+'</span></button>';
       }
-      validateState._queue = [];
-      validateState._collectedFelder = [];
-      validateState._collectedSerie  = '';
-      validateState._collectedDate   = '';
-      datesNS.forEach(function(d){
-        var entries = dateMap[d].map(function(f){
-          return { serie:f.serie, losnr:f.losnr, zahlen:f.zahlen, errors:[] };
-        });
-        validateState._queue.push({date:d, entries:entries});
-      });
-      if(validateState._queue.length){
-        var first = validateState._queue.shift();
-        validateState.date    = first.date;
-        validateState.entries = first.entries;
-        openValidateDialog();
-      }
-      if(hiddenNS) toast(hiddenNS+' vergangene Termine übersprungen','ok');
+      btnHtml+='<button class="pdf-date-btn" data-showall="1" style="background:var(--g2);color:var(--g8)">&#128203;'+
+        '<span class="pdf-date-count">alle '+totalAllNS+'</span></button></div>';
+      grid3.innerHTML=btnHtml;
       return;
     }
   }
